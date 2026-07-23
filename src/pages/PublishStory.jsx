@@ -21,6 +21,7 @@ const emptyForm = {
   language: 'en',
   author_type: 'individual',
   author_name: '',
+  date: new Date().toISOString().slice(0, 10),
   breaking: false,
   featured: false,
   excerpt: '',
@@ -29,13 +30,29 @@ const emptyForm = {
 }
 
 export default function PublishStory() {
-  const { profile } = useAuth()
+  const { user, profile } = useAuth()
   const navigate = useNavigate()
   const [form, setForm] = useState(emptyForm)
   const [preview, setPreview] = useState(false)
   const [saving, setSaving] = useState(false)
   const [errors, setErrors] = useState({})
   const [notice, setNotice] = useState('')
+
+  function wrapSelection(field, openTag, closeTag) {
+    const el = document.getElementById(`${field}-textarea`)
+    if (!el) return
+    const start = el.selectionStart
+    const end = el.selectionEnd
+    const value = form[field]
+    const selected = value.slice(start, end) || 'text'
+    const newValue = value.slice(0, start) + openTag + selected + closeTag + value.slice(end)
+    update(field, newValue)
+    requestAnimationFrame(() => {
+      el.focus()
+      const cursorPos = start + openTag.length + selected.length + closeTag.length
+      el.setSelectionRange(cursorPos, cursorPos)
+    })
+  }
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }))
@@ -67,13 +84,14 @@ export default function PublishStory() {
       language: form.language,
       author_type: form.author_type,
       author_name: authorName,
+      date: form.date,
       breaking: form.breaking,
       featured: form.featured,
       excerpt: form.excerpt,
       content: form.content,
       tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
       status,
-      created_by: profile?.id,
+      created_by: user?.id,
     }
 
     const { error } = await supabase.from('drafts').insert(payload)
@@ -142,6 +160,15 @@ export default function PublishStory() {
           </Field>
         </div>
 
+        <Field label="Date" hint="The date shown on the story. Defaults to today — change it if you're backdating or scheduling.">
+          <input
+            type="date"
+            value={form.date}
+            onChange={(e) => update('date', e.target.value)}
+            className={inputClass()}
+          />
+        </Field>
+
         <div className="grid grid-cols-2 gap-5">
           <Field label="Author">
             <select
@@ -181,8 +208,27 @@ export default function PublishStory() {
           />
         </Field>
 
-        <Field label="Story body" hint="One paragraph per line." error={errors.content}>
+        <Field label="Story body" hint="One paragraph per line. Select text and click Bold to emphasize a word or lead-in phrase." error={errors.content}>
+          <div className="flex items-center gap-1 mb-1.5">
+            <button
+              type="button"
+              onClick={() => wrapSelection('content', '<strong>', '</strong>')}
+              className="text-xs font-bold border border-line hover:border-text-faint w-7 h-7 rounded flex items-center justify-center transition-colors"
+              title="Bold selected text"
+            >
+              B
+            </button>
+            <button
+              type="button"
+              onClick={() => wrapSelection('content', '<em>', '</em>')}
+              className="text-xs italic border border-line hover:border-text-faint w-7 h-7 rounded flex items-center justify-center transition-colors"
+              title="Italicize selected text"
+            >
+              i
+            </button>
+          </div>
           <textarea
+            id="content-textarea"
             value={form.content}
             onChange={(e) => update('content', e.target.value)}
             rows={12}

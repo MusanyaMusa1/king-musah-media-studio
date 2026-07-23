@@ -22,6 +22,17 @@ body {
   background: var(--color-ink);
   color: var(--color-text);
   font-family: var(--font-body);
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+[data-theme="light"] {
+  --color-ink: #FAFAF8;
+  --color-paper: #ffffff;
+  --color-paper-2: #F2F1EC;
+  --color-line: rgba(20,19,17,0.1);
+  --color-text: #141311;
+  --color-text-soft: rgba(20,19,17,0.68);
+  --color-text-faint: rgba(20,19,17,0.5);
 }
 
 .font-display {

@@ -1,5 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useTheme } from '../hooks/useTheme'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', roles: ['admin', 'editor', 'reporter'] },
@@ -25,9 +26,17 @@ export default function Layout({ children }) {
     <div className="min-h-screen flex bg-ink text-text">
       {/* Sidebar */}
       <aside className="w-60 shrink-0 border-r border-line flex flex-col">
-        <div className="px-5 py-6 border-b border-line">
-          <div className="font-display text-xl tracking-wide">King Musah Media</div>
-          <div className="text-[11px] font-mono uppercase tracking-widest text-text-faint mt-0.5">Studio</div>
+        <div className="px-5 py-6 border-b border-line flex items-center gap-2.5">
+          <img
+            src="/logo.png"
+            alt=""
+            className="w-8 h-8 rounded object-contain shrink-0"
+            onError={(e) => { e.target.style.display = 'none' }}
+          />
+          <div>
+            <div className="font-display text-xl tracking-wide leading-none">King Musah Media</div>
+            <div className="text-[11px] font-mono uppercase tracking-widest text-text-faint mt-0.5">Studio</div>
+          </div>
         </div>
 
         <nav className="flex-1 py-3">
@@ -71,15 +80,21 @@ export default function Layout({ children }) {
 }
 
 function StatusTicker() {
-  // Phase 1: static "system nominal" readout. In Phase 3 this becomes a live
-  // feed of GitHub Actions build status (queued / building / live / failed),
-  // echoing the breaking-news ticker on the public site — but reporting on
-  // the system itself instead of the news.
+  const { theme, toggleTheme } = useTheme()
   return (
-    <div className="h-9 shrink-0 border-b border-line bg-paper flex items-center px-5 gap-2 font-mono text-xs">
-      <span className="w-1.5 h-1.5 rounded-full bg-wire pulse-dot" />
-      <span className="text-text-faint uppercase tracking-widest">System</span>
-      <span className="text-text-soft">All systems nominal · GitHub sync ready</span>
+    <div className="h-9 shrink-0 border-b border-line bg-paper flex items-center justify-between px-5 font-mono text-xs">
+      <div className="flex items-center gap-2">
+        <span className="w-1.5 h-1.5 rounded-full bg-wire pulse-dot" />
+        <span className="text-text-faint uppercase tracking-widest">System</span>
+        <span className="text-text-soft">All systems nominal · GitHub sync ready</span>
+      </div>
+      <button
+        onClick={toggleTheme}
+        className="text-text-faint hover:text-text transition-colors"
+        title="Toggle light / dark"
+      >
+        {theme === 'light' ? '\u263E' : '\u2600'}
+      </button>
     </div>
   )
 }
