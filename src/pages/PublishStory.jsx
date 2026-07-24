@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -30,13 +30,42 @@ const emptyForm = {
 }
 
 export default function PublishStory() {
-  const { user, profile } = useAuth()
+  const { user } = useAuth()
   const navigate = useNavigate()
+  const { id } = useParams()
   const [form, setForm] = useState(emptyForm)
   const [preview, setPreview] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [loadingDraft, setLoadingDraft] = useState(!!id)
   const [errors, setErrors] = useState({})
   const [notice, setNotice] = useState('')
+
+  useEffect(() => {
+    if (!id) return
+    async function loadDraft() {
+      setLoadingDraft(true)
+      const { data, error } = await supabase.from('drafts').select('*').eq('id', id).single()
+      if (!error && data) {
+        setForm({
+          title: data.title || '',
+          category: data.category || 'news',
+          language: data.language || 'en',
+          author_type: data.author_type || 'individual',
+          author_name: data.author_type === 'newsdesk' ? '' : data.author_name || '',
+          date: data.date || new Date().toISOString().slice(0, 10),
+          breaking: !!data.breaking,
+          featured: !!data.featured,
+          excerpt: data.excerpt || '',
+          content: data.content || '',
+          tags: (data.tags || []).join(', '),
+        })
+      } else {
+        setNotice("Couldn't load that draft. It may have been deleted.")
+      }
+      setLoadingDraft(false)
+    }
+    loadDraft()
+  }, [id])
 
   function wrapSelection(field, openTag, closeTag) {
     const el = document.getElementById(`${field}-textarea`)
@@ -91,10 +120,14 @@ export default function PublishStory() {
       content: form.content,
       tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
       status,
-      created_by: user?.id,
     }
 
-    const { error } = await supabase.from('drafts').insert(payload)
+    let error
+    if (id) {
+      ;({ error } = await supabase.from('drafts').update(payload).eq('id', id))
+    } else {
+      ;({ error } = await supabase.from('drafts').insert({ ...payload, created_by: user?.id }))
+    }
     setSaving(false)
 
     if (error) {
@@ -109,11 +142,17 @@ export default function PublishStory() {
     }
   }
 
+  if (loadingDraft) {
+    return <p className="text-text-faint text-sm">Loading draft…</p>
+  }
+
   return (
     <div className="max-w-3xl">
-      <h1 className="font-display text-3xl mb-1">Publish Story</h1>
+      <h1 className="font-display text-3xl mb-1">{id ? 'Edit Story' : 'Publish Story'}</h1>
       <p className="text-text-soft text-sm mb-8">
-        Fill this in, then save a draft, submit it for review, or publish directly if you have permission.
+        {id
+          ? 'Changes save to this same draft — nothing is duplicated.'
+          : 'Fill this in, then save a draft, submit it for review, or publish directly if you have permission.'}
       </p>
 
       {notice && (

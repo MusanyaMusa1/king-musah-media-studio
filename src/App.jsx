@@ -19,6 +19,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/publish" element={<ProtectedRoute><PublishStory /></ProtectedRoute>} />
+          <Route path="/publish/:id" element={<ProtectedRoute><PublishStory /></ProtectedRoute>} />
           <Route path="/drafts" element={<ProtectedRoute><Drafts /></ProtectedRoute>} />
           <Route path="/stories" element={<ProtectedRoute><Stories /></ProtectedRoute>} />
           <Route path="/media" element={<ProtectedRoute roles={['admin', 'editor']}><Media /></ProtectedRoute>} />

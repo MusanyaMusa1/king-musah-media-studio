@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 
@@ -61,7 +62,11 @@ export default function Drafts() {
       ) : (
         <div className="border border-line rounded-lg divide-y divide-line">
           {filtered.map((item) => (
-            <div key={item.id} className="flex items-center justify-between px-4 py-3.5">
+            <Link
+              to={`/publish/${item.id}`}
+              key={item.id}
+              className="flex items-center justify-between px-4 py-3.5 hover:bg-white/[0.03] transition-colors"
+            >
               <div className="min-w-0">
                 <div className="text-sm font-medium truncate">{item.title}</div>
                 <div className="text-xs text-text-faint font-mono mt-0.5">
@@ -75,7 +80,7 @@ export default function Drafts() {
               >
                 {item.status}
               </span>
-            </div>
+            </Link>
           ))}
         </div>
       )}
