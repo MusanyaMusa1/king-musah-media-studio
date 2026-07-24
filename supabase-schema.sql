@@ -43,6 +43,7 @@ create table if not exists public.drafts (
   language text not null default 'en' check (language in ('en', 'lg')),
   author_type text not null default 'individual' check (author_type in ('individual', 'newsdesk')),
   author_name text not null,
+  date date not null default current_date,
   breaking boolean not null default false,
   featured boolean not null default false,
   excerpt text,
