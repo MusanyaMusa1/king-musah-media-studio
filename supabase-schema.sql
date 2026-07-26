@@ -25,12 +25,21 @@ create policy "Users can update their own profile"
   on public.profiles for update
   using (auth.uid() = id);
 
+-- A small helper function that checks admin status. Because it's SECURITY
+-- DEFINER, it runs with elevated privileges and bypasses RLS internally —
+-- this avoids a self-referential RLS loop that occurs if a policy on
+-- "profiles" queries "profiles" directly within its own USING clause.
+create or replace function public.is_admin()
+returns boolean as $$
+  select exists (
+    select 1 from public.profiles where id = auth.uid() and role = 'admin'
+  );
+$$ language sql security definer stable;
+
 -- Only admins can insert/delete profiles (user management)
 create policy "Admins can manage profiles"
   on public.profiles for all
-  using (
-    exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin')
-  );
+  using (public.is_admin());
 
 -- ============================================================
 -- DRAFTS: stories in progress, before they're committed to GitHub
@@ -47,6 +56,7 @@ create table if not exists public.drafts (
   breaking boolean not null default false,
   featured boolean not null default false,
   excerpt text,
+  image_alt text,
   content text not null,
   tags text[] default '{}',
   image_path text,

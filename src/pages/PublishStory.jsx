@@ -25,6 +25,7 @@ const emptyForm = {
   breaking: false,
   featured: false,
   excerpt: '',
+  image_alt: '',
   content: '',
   tags: '',
 }
@@ -36,9 +37,13 @@ export default function PublishStory() {
   const [form, setForm] = useState(emptyForm)
   const [preview, setPreview] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [publishing, setPublishing] = useState(false)
   const [loadingDraft, setLoadingDraft] = useState(!!id)
   const [errors, setErrors] = useState({})
   const [notice, setNotice] = useState('')
+  const [noticeType, setNoticeType] = useState('info')
+  const [imageFile, setImageFile] = useState(null)
+  const [imagePreviewUrl, setImagePreviewUrl] = useState(null)
 
   useEffect(() => {
     if (!id) return
@@ -56,6 +61,7 @@ export default function PublishStory() {
           breaking: !!data.breaking,
           featured: !!data.featured,
           excerpt: data.excerpt || '',
+          image_alt: data.image_alt || '',
           content: data.content || '',
           tags: (data.tags || []).join(', '),
         })
@@ -100,7 +106,7 @@ export default function PublishStory() {
   }
 
   async function saveDraft(status) {
-    if (status !== 'draft' && !validate()) return
+    if (status !== 'draft' && !validate()) return null
     setSaving(true)
     setNotice('')
 
@@ -117,29 +123,72 @@ export default function PublishStory() {
       breaking: form.breaking,
       featured: form.featured,
       excerpt: form.excerpt,
+      image_alt: form.image_alt,
       content: form.content,
       tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
       status,
     }
 
-    let error
+    let error, draftId = id
     if (id) {
       ;({ error } = await supabase.from('drafts').update(payload).eq('id', id))
     } else {
-      ;({ error } = await supabase.from('drafts').insert({ ...payload, created_by: user?.id }))
+      const result = await supabase.from('drafts').insert({ ...payload, created_by: user?.id }).select('id').single()
+      error = result.error
+      draftId = result.data?.id
     }
     setSaving(false)
 
     if (error) {
       setNotice(`Something went wrong saving this: ${error.message}`)
-      return
+      setNoticeType('error')
+      return null
     }
 
     if (status === 'draft') {
       setNotice('Saved as a draft.')
-    } else {
-      navigate('/drafts')
+      setNoticeType('info')
     }
+
+    return draftId
+  }
+
+  async function handlePublish() {
+    if (!validate()) return
+    setNotice('')
+
+    // Save (or update) the draft first, so the Edge Function has the latest text
+    const draftId = await saveDraft('submitted')
+    if (!draftId) return
+
+    setPublishing(true)
+
+    let imageBase64 = null
+    let imageExt = null
+    if (imageFile) {
+      imageExt = imageFile.name.split('.').pop().toLowerCase()
+      const buffer = await imageFile.arrayBuffer()
+      const bytes = new Uint8Array(buffer)
+      let binary = ''
+      bytes.forEach((b) => (binary += String.fromCharCode(b)))
+      imageBase64 = btoa(binary)
+    }
+
+    const { data, error } = await supabase.functions.invoke('publish-story', {
+      body: { draftId, imageBase64, imageExt },
+    })
+
+    setPublishing(false)
+
+    if (error || data?.error) {
+      setNotice(data?.error || error.message || 'Something went wrong publishing this.')
+      setNoticeType('error')
+      return
+    }
+
+    setNotice(`Published! It'll appear on the live site within about a minute, once GitHub finishes rebuilding.`)
+    setNoticeType('success')
+    setTimeout(() => navigate('/drafts'), 2500)
   }
 
   if (loadingDraft) {
@@ -156,7 +205,15 @@ export default function PublishStory() {
       </p>
 
       {notice && (
-        <div className="mb-6 text-sm bg-wire/10 border border-wire/20 text-wire rounded-md px-4 py-2.5">
+        <div
+          className={`mb-6 text-sm rounded-md px-4 py-2.5 border ${
+            noticeType === 'error'
+              ? 'bg-red/10 border-red/20 text-red'
+              : noticeType === 'success'
+              ? 'bg-wire/10 border-wire/20 text-wire'
+              : 'bg-wire/10 border-wire/20 text-wire'
+          }`}
+        >
           {notice}
         </div>
       )}
@@ -285,10 +342,30 @@ export default function PublishStory() {
           />
         </Field>
 
-        <Field label="Image" hint="Coming in Phase 2 — for now, upload photos the same way you do today.">
-          <div className="border border-dashed border-line rounded-md px-4 py-6 text-center text-text-faint text-sm">
-            Image upload isn't wired up yet
-          </div>
+        <Field label="Image alt text" hint="A short description of the photo, for accessibility and search engines.">
+          <input
+            type="text"
+            value={form.image_alt}
+            onChange={(e) => update('image_alt', e.target.value)}
+            className={inputClass()}
+            placeholder="e.g. President Museveni addressing Parliament"
+          />
+        </Field>
+
+        <Field label="Photo" hint="JPG, PNG, or WEBP. Uploads with the story when you click Publish.">
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              setImageFile(file || null)
+              setImagePreviewUrl(file ? URL.createObjectURL(file) : null)
+            }}
+            className="text-sm text-text-soft file:mr-3 file:py-2 file:px-3 file:rounded-md file:border file:border-line file:bg-paper-2 file:text-text file:text-xs file:cursor-pointer"
+          />
+          {imagePreviewUrl && (
+            <img src={imagePreviewUrl} alt="" className="mt-3 rounded-md max-h-48 object-cover" />
+          )}
         </Field>
       </div>
 
@@ -307,18 +384,21 @@ export default function PublishStory() {
           Save draft
         </button>
         <button
-          onClick={() => saveDraft('submitted')}
+          onClick={async () => {
+            const draftId = await saveDraft('submitted')
+            if (draftId) navigate('/drafts')
+          }}
           disabled={saving}
           className="text-sm bg-amber hover:bg-amber/90 text-white px-4 py-2 rounded-md transition-colors disabled:opacity-50"
         >
           Submit for review
         </button>
         <button
-          onClick={() => saveDraft('published')}
-          disabled={saving}
+          onClick={handlePublish}
+          disabled={saving || publishing}
           className="text-sm bg-red hover:bg-red/90 text-white px-4 py-2 rounded-md transition-colors disabled:opacity-50 ml-auto"
         >
-          Publish
+          {publishing ? 'Publishing…' : 'Publish'}
         </button>
       </div>
 
