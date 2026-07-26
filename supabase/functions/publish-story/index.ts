@@ -77,7 +77,7 @@ Deno.serve(async (req) => {
       return json({ error: "Your account doesn't have permission to publish." }, 403)
     }
 
-    const { draftId, imageBase64, imageExt } = await req.json()
+    const { draftId, imageBase64, imageExt, action } = await req.json()
     if (!draftId) return json({ error: 'Missing draftId.' }, 400)
 
     // Load the draft
@@ -89,10 +89,6 @@ Deno.serve(async (req) => {
 
     if (draftError || !draft) return json({ error: 'Draft not found.' }, 404)
 
-    if (!draft.slug || !draft.title || !draft.excerpt || !draft.content) {
-      return json({ error: 'Story is missing required fields (slug, title, excerpt, or body).' }, 400)
-    }
-
     // Fetch current articles.json
     const currentRes = await githubRequest(`${ARTICLES_PATH}?ref=${GITHUB_BRANCH}`)
     if (!currentRes.ok) {
@@ -102,9 +98,43 @@ Deno.serve(async (req) => {
     const currentFile = await currentRes.json()
     const currentContent = JSON.parse(atob(currentFile.content.replace(/\n/g, '')))
 
-    // Prevent duplicate slugs
-    if (currentContent.some((a: { slug: string }) => a.slug === draft.slug)) {
-      return json({ error: `A story with the slug "${draft.slug}" already exists. Change the headline slightly to generate a different slug, then try again.` }, 409)
+    // ---- DELETE ----
+    if (action === 'delete') {
+      if (!draft.slug) return json({ error: 'This story was never published, so there is nothing live to delete.' }, 400)
+
+      const filtered = currentContent.filter((a: { slug: string }) => a.slug !== draft.slug)
+      if (filtered.length === currentContent.length) {
+        return json({ error: 'Could not find this story on the live site. It may have already been removed.' }, 404)
+      }
+
+      const delRes = await githubRequest(ARTICLES_PATH, {
+        method: 'PUT',
+        body: JSON.stringify({
+          message: `Remove story: ${draft.title}`,
+          content: btoa(unescape(encodeURIComponent(JSON.stringify(filtered, null, 2)))),
+          sha: currentFile.sha,
+          branch: GITHUB_BRANCH,
+        }),
+      })
+      if (!delRes.ok) {
+        const errText = await delRes.text()
+        return json({ error: `Could not remove story from GitHub: ${errText}` }, 502)
+      }
+
+      await supabase.from('drafts').update({ status: 'archived' }).eq('id', draftId)
+      return json({ success: true, deleted: true, slug: draft.slug })
+    }
+
+    // ---- PUBLISH (create or update) ----
+    if (!draft.slug || !draft.title || !draft.excerpt || !draft.content) {
+      return json({ error: 'Story is missing required fields (slug, title, excerpt, or body).' }, 400)
+    }
+
+    const existingIndex = currentContent.findIndex((a: { slug: string }) => a.slug === draft.slug)
+    const isUpdatingOwnStory = existingIndex !== -1 && !!draft.published_at
+
+    if (existingIndex !== -1 && !isUpdatingOwnStory) {
+      return json({ error: `A different story with the slug "${draft.slug}" already exists. Change the headline slightly so it generates a unique slug, then try again.` }, 409)
     }
 
     const authorName = draft.author_type === 'newsdesk' ? 'King Musah Media News Desk' : draft.author_name
@@ -124,7 +154,9 @@ Deno.serve(async (req) => {
       tags: draft.tags || [],
     }
 
-    const updatedContent = [newArticle, ...currentContent]
+    const updatedContent = isUpdatingOwnStory
+      ? currentContent.map((a: { slug: string }, i: number) => (i === existingIndex ? newArticle : a))
+      : [newArticle, ...currentContent]
 
     // If a photo was included, commit it first
     if (imageBase64 && imageExt) {

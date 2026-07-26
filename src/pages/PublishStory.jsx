@@ -38,6 +38,8 @@ export default function PublishStory() {
   const [preview, setPreview] = useState(false)
   const [saving, setSaving] = useState(false)
   const [publishing, setPublishing] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [isLive, setIsLive] = useState(false)
   const [loadingDraft, setLoadingDraft] = useState(!!id)
   const [errors, setErrors] = useState({})
   const [notice, setNotice] = useState('')
@@ -65,6 +67,7 @@ export default function PublishStory() {
           content: data.content || '',
           tags: (data.tags || []).join(', '),
         })
+        setIsLive(!!data.published_at)
       } else {
         setNotice("Couldn't load that draft. It may have been deleted.")
       }
@@ -181,7 +184,16 @@ export default function PublishStory() {
     setPublishing(false)
 
     if (error || data?.error) {
-      setNotice(data?.error || error.message || 'Something went wrong publishing this.')
+      let message = data?.error || error?.message || 'Something went wrong publishing this.'
+      if (error?.context) {
+        try {
+          const body = await error.context.json()
+          if (body?.error) message = body.error
+        } catch {
+          // context wasn't JSON — fall back to the generic message
+        }
+      }
+      setNotice(message)
       setNoticeType('error')
       return
     }
@@ -189,6 +201,39 @@ export default function PublishStory() {
     setNotice(`Published! It'll appear on the live site within about a minute, once GitHub finishes rebuilding.`)
     setNoticeType('success')
     setTimeout(() => navigate('/drafts'), 2500)
+  }
+
+  async function handleDelete() {
+    if (!id) return
+    if (!window.confirm('Remove this story from the live site? This cannot be undone from here.')) return
+    setDeleting(true)
+    setNotice('')
+
+    const { data, error } = await supabase.functions.invoke('publish-story', {
+      body: { draftId: id, action: 'delete' },
+    })
+
+    setDeleting(false)
+
+    if (error || data?.error) {
+      let message = data?.error || error?.message || 'Something went wrong removing this.'
+      if (error?.context) {
+        try {
+          const body = await error.context.json()
+          if (body?.error) message = body.error
+        } catch {
+          // not JSON — keep the generic message
+        }
+      }
+      setNotice(message)
+      setNoticeType('error')
+      return
+    }
+
+    setNotice('Removed from the live site. This will disappear within about a minute.')
+    setNoticeType('success')
+    setIsLive(false)
+    setTimeout(() => navigate('/drafts'), 2000)
   }
 
   if (loadingDraft) {
@@ -398,8 +443,17 @@ export default function PublishStory() {
           disabled={saving || publishing}
           className="text-sm bg-red hover:bg-red/90 text-white px-4 py-2 rounded-md transition-colors disabled:opacity-50 ml-auto"
         >
-          {publishing ? 'Publishing…' : 'Publish'}
+          {publishing ? 'Publishing…' : isLive ? 'Update live story' : 'Publish'}
         </button>
+        {isLive && (
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="text-sm border border-red/40 text-red hover:bg-red/10 px-4 py-2 rounded-md transition-colors disabled:opacity-50"
+          >
+            {deleting ? 'Removing…' : 'Remove from site'}
+          </button>
+        )}
       </div>
 
       {preview && <PreviewModal form={form} onClose={() => setPreview(false)} />}
