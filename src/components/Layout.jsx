@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../hooks/useTheme'
+import NotificationBell from './NotificationBell'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', roles: ['admin', 'editor', 'reporter'] },
@@ -16,6 +18,7 @@ const NAV_ITEMS = [
 export default function Layout({ children }) {
   const { profile, role, signOut } = useAuth()
   const navigate = useNavigate()
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   async function handleSignOut() {
     await signOut()
@@ -24,8 +27,19 @@ export default function Layout({ children }) {
 
   return (
     <div className="min-h-screen flex bg-ink text-text">
-      {/* Sidebar */}
-      <aside className="w-60 shrink-0 border-r border-line flex flex-col">
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 z-30 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 w-60 shrink-0 border-r border-line bg-ink flex flex-col
+          transform transition-transform duration-200
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+          md:relative md:translate-x-0 md:transition-none`}
+      >
         <div className="px-5 py-6 border-b border-line flex items-center gap-2.5">
           <img
             src="/logo.png"
@@ -39,12 +53,13 @@ export default function Layout({ children }) {
           </div>
         </div>
 
-        <nav className="flex-1 py-3">
+        <nav className="flex-1 py-3 overflow-y-auto">
           {NAV_ITEMS.filter((item) => !role || item.roles.includes(role)).map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               end={item.to === '/'}
+              onClick={() => setSidebarOpen(false)}
               className={({ isActive }) =>
                 `block px-5 py-2.5 text-sm transition-colors ${
                   isActive
@@ -70,31 +85,40 @@ export default function Layout({ children }) {
         </div>
       </aside>
 
-      {/* Main column */}
       <div className="flex-1 flex flex-col min-w-0">
-        <StatusTicker />
-        <main className="flex-1 overflow-y-auto p-8">{children}</main>
+        <StatusTicker onMenuClick={() => setSidebarOpen((v) => !v)} />
+        <main className="flex-1 overflow-y-auto p-5 md:p-8">{children}</main>
       </div>
     </div>
   )
 }
 
-function StatusTicker() {
+function StatusTicker({ onMenuClick }) {
   const { theme, toggleTheme } = useTheme()
   return (
-    <div className="h-9 shrink-0 border-b border-line bg-paper flex items-center justify-between px-5 font-mono text-xs">
-      <div className="flex items-center gap-2">
-        <span className="w-1.5 h-1.5 rounded-full bg-wire pulse-dot" />
-        <span className="text-text-faint uppercase tracking-widest">System</span>
-        <span className="text-text-soft">All systems nominal · GitHub sync ready</span>
+    <div className="h-9 shrink-0 border-b border-line bg-paper flex items-center justify-between px-3 md:px-5 font-mono text-xs">
+      <div className="flex items-center gap-3 min-w-0">
+        <button
+          onClick={onMenuClick}
+          className="md:hidden text-text-soft hover:text-text transition-colors text-base leading-none shrink-0"
+          aria-label="Toggle menu"
+        >
+          &#9776;
+        </button>
+        <span className="w-1.5 h-1.5 rounded-full bg-wire pulse-dot shrink-0" />
+        <span className="text-text-faint uppercase tracking-widest shrink-0 hidden sm:inline">System</span>
+        <span className="text-text-soft truncate">All systems nominal · GitHub sync ready</span>
       </div>
-      <button
-        onClick={toggleTheme}
-        className="text-text-faint hover:text-text transition-colors"
-        title="Toggle light / dark"
-      >
-        {theme === 'light' ? '\u263E' : '\u2600'}
-      </button>
+      <div className="flex items-center gap-4 shrink-0 ml-2">
+        <NotificationBell />
+        <button
+          onClick={toggleTheme}
+          className="text-text-faint hover:text-text transition-colors"
+          title="Toggle light / dark"
+        >
+          {theme === 'light' ? '\u263E' : '\u2600'}
+        </button>
+      </div>
     </div>
   )
 }
