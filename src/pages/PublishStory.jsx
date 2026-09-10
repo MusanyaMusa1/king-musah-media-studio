@@ -181,7 +181,7 @@ export default function PublishStory() {
       body: { draftId, imageBase64, imageExt },
     })
 
-    setPublishing(false)
+   setPublishing(false)
 
     if (error || data?.error) {
       let message = data?.error || error?.message || 'Something went wrong publishing this.'
@@ -198,9 +198,20 @@ export default function PublishStory() {
       return
     }
 
+    // Auto-share to LinkedIn, Facebook, and X — only for brand-new stories,
+    // never for edits to something already live.
+    if (!isLive) {
+      supabase.functions.invoke('share-to-buffer', {
+        body: { title: form.title, excerpt: form.excerpt, slug: slugify(form.title) },
+      }).catch(() => {
+        // Sharing failure shouldn't block the publish success message.
+      })
+    }
+
     setNotice(`Published! It'll appear on the live site within about a minute, once GitHub finishes rebuilding.`)
     setNoticeType('success')
     setTimeout(() => navigate('/drafts'), 2500)
+  }
   }
 
   async function handleDelete() {
