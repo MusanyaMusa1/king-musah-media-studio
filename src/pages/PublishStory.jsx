@@ -212,7 +212,6 @@ export default function PublishStory() {
     setNoticeType('success')
     setTimeout(() => navigate('/drafts'), 2500)
   }
-  }
 
   async function handleDelete() {
     if (!id) return
