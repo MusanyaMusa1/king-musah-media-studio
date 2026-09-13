@@ -47,6 +47,12 @@ export default function PublishStory() {
   const [imageFile, setImageFile] = useState(null)
   const [imagePreviewUrl, setImagePreviewUrl] = useState(null)
 
+  const [showAi, setShowAi] = useState(false)
+  const [aiNotes, setAiNotes] = useState('')
+  const [aiCategoryHint, setAiCategoryHint] = useState('')
+  const [aiGenerating, setAiGenerating] = useState(false)
+  const [aiError, setAiError] = useState('')
+
   useEffect(() => {
     if (!id) return
     async function loadDraft() {
@@ -106,6 +112,49 @@ export default function PublishStory() {
     }
     setErrors(e)
     return Object.keys(e).length === 0
+  }
+
+  async function handleGenerateWithAi() {
+    if (!aiNotes.trim()) {
+      setAiError('Paste in some notes first — even rough bullet points work.')
+      return
+    }
+    setAiGenerating(true)
+    setAiError('')
+
+    const { data, error } = await supabase.functions.invoke('generate-draft', {
+      body: { notes: aiNotes, categoryHint: aiCategoryHint },
+    })
+
+    setAiGenerating(false)
+
+    if (error || data?.error) {
+      let message = data?.error || error?.message || 'Something went wrong generating a draft.'
+      if (error?.context) {
+        try {
+          const body = await error.context.json()
+          if (body?.error) message = body.error
+        } catch {
+          // context wasn't JSON — fall back to the generic message
+        }
+      }
+      setAiError(message)
+      return
+    }
+
+    const draft = data.draft
+    setForm((f) => ({
+      ...f,
+      title: draft.title || f.title,
+      excerpt: draft.excerpt || f.excerpt,
+      category: CATEGORIES.includes(draft.category) ? draft.category : f.category,
+      tags: Array.isArray(draft.tags) ? draft.tags.join(', ') : f.tags,
+      image_alt: draft.image_alt || f.image_alt,
+      content: Array.isArray(draft.content) ? draft.content.join('\n\n') : f.content,
+    }))
+    setShowAi(false)
+    setNotice('AI draft filled in below — read it over, fix anything, and edit freely before publishing.')
+    setNoticeType('info')
   }
 
   async function saveDraft(status) {
@@ -181,7 +230,7 @@ export default function PublishStory() {
       body: { draftId, imageBase64, imageExt },
     })
 
-   setPublishing(false)
+    setPublishing(false)
 
     if (error || data?.error) {
       let message = data?.error || error?.message || 'Something went wrong publishing this.'
@@ -270,6 +319,53 @@ export default function PublishStory() {
           }`}
         >
           {notice}
+        </div>
+      )}
+
+      {!id && (
+        <div className="mb-6 border border-line rounded-lg p-4">
+          <button
+            type="button"
+            onClick={() => setShowAi((v) => !v)}
+            className="text-sm font-medium flex items-center gap-2"
+          >
+            ✨ Generate with AI {showAi ? '−' : '+'}
+          </button>
+          {showAi && (
+            <div className="mt-3 space-y-3">
+              <p className="text-xs text-text-faint">
+                Paste your rough notes, quotes, or bullet points below. It'll draft a full story in
+                King Musah Media's style — you review and edit everything before it's saved anywhere.
+              </p>
+              {aiError && (
+                <div className="text-sm bg-red/10 border border-red/20 text-red rounded-md px-3 py-2">
+                  {aiError}
+                </div>
+              )}
+              <textarea
+                value={aiNotes}
+                onChange={(e) => setAiNotes(e.target.value)}
+                rows={6}
+                placeholder="e.g. Minister X announced Y today at Z event. Said quote about... Opposition reaction was..."
+                className={inputClass() + ' font-mono text-sm'}
+              />
+              <input
+                type="text"
+                value={aiCategoryHint}
+                onChange={(e) => setAiCategoryHint(e.target.value)}
+                placeholder="Optional: category hint, e.g. politics"
+                className={inputClass()}
+              />
+              <button
+                type="button"
+                onClick={handleGenerateWithAi}
+                disabled={aiGenerating}
+                className="text-sm bg-red hover:bg-red/90 text-white px-4 py-2 rounded-md transition-colors disabled:opacity-50"
+              >
+                {aiGenerating ? 'Generating…' : 'Generate draft'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
