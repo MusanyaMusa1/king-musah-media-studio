@@ -28,6 +28,7 @@ const emptyForm = {
   image_alt: '',
   content: '',
   tags: '',
+  video_url: '',
 }
 
 export default function PublishStory() {
@@ -72,6 +73,7 @@ export default function PublishStory() {
           image_alt: data.image_alt || '',
           content: data.content || '',
           tags: (data.tags || []).join(', '),
+          video_url: data.video_url || '',
         })
         setIsLive(!!data.published_at)
       } else {
@@ -178,6 +180,7 @@ export default function PublishStory() {
       image_alt: form.image_alt,
       content: form.content,
       tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
+      video_url: form.video_url.trim() || null,
       status,
     }
 
@@ -517,6 +520,19 @@ export default function PublishStory() {
           {imagePreviewUrl && (
             <img src={imagePreviewUrl} alt="" className="mt-3 rounded-md max-h-48 object-cover" />
           )}
+        </Field>
+
+        <Field
+          label="Video (optional)"
+          hint="Paste a YouTube link — either an existing video, or one you've uploaded to your own channel (Unlisted is fine). If set, this replaces the photo on the story page."
+        >
+          <input
+            type="text"
+            value={form.video_url}
+            onChange={(e) => update('video_url', e.target.value)}
+            className={inputClass()}
+            placeholder="https://youtube.com/watch?v=..."
+          />
         </Field>
       </div>
 
