@@ -524,7 +524,7 @@ export default function PublishStory() {
 
         <Field
           label="Video (optional)"
-          hint="Paste a YouTube link — either an existing video, or one you've uploaded to your own channel (Unlisted is fine). If set, this replaces the photo on the story page."
+          hint="Paste a YouTube link — either an existing video, or one you've uploaded to your own channel (Unlisted is fine). The photo stays as the lead image, and this plays right below it — both show, not one or the other."
         >
           <input
             type="text"
