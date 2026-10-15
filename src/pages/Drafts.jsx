@@ -68,7 +68,28 @@ export default function Drafts() {
     }
 
     await notify(item.created_by, `Your story "${item.title}" was approved and published.`, 'success')
-    setNotice(`Published "${item.title}".`)
+
+    // Share to LinkedIn, Facebook and X — only for brand-new stories, not edits to live ones.
+    let shareProblem = ''
+    if (!item.published_at) {
+      try {
+        const { data: shareData, error: shareError } = await supabase.functions.invoke('share-to-buffer', {
+          body: { title: item.title, excerpt: item.excerpt, slug: item.slug },
+        })
+        if (shareError) {
+          shareProblem = ' Social sharing could not be reached.'
+        } else {
+          const failed = (shareData?.results || []).filter((r) => !r.ok)
+          if (failed.length) {
+            shareProblem = ` It was not shared to ${failed.map((r) => `${r.channel} (${r.error})`).join('; ')}.`
+          }
+        }
+      } catch {
+        shareProblem = ' Social sharing could not be reached.'
+      }
+    }
+
+    setNotice(`Published "${item.title}".${shareProblem}`)
     load()
   }
 

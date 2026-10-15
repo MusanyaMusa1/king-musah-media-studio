@@ -252,17 +252,41 @@ export default function PublishStory() {
 
     // Auto-share to LinkedIn, Facebook, and X — only for brand-new stories,
     // never for edits to something already live.
+    let shareProblem = ''
     if (!isLive) {
-      supabase.functions.invoke('share-to-buffer', {
-        body: { title: form.title, excerpt: form.excerpt, slug: slugify(form.title) },
-      }).catch(() => {
-        // Sharing failure shouldn't block the publish success message.
-      })
+      setNotice('Published! Sharing to social media…')
+      setNoticeType('success')
+      setPublishing(true) // keeps the button locked so nobody double-clicks and double-posts
+
+      try {
+        const { data: shareData, error: shareError } = await supabase.functions.invoke('share-to-buffer', {
+          body: { title: form.title, excerpt: form.excerpt, slug: slugify(form.title) },
+        })
+        if (shareError) {
+          shareProblem = 'social sharing could not be reached.'
+        } else {
+          const failed = (shareData?.results || []).filter((r) => !r.ok)
+          if (failed.length) {
+            shareProblem = `it was not shared to ${failed.map((r) => `${r.channel} (${r.error})`).join('; ')}.`
+          }
+        }
+      } catch {
+        shareProblem = 'social sharing could not be reached.'
+      }
+
+      setPublishing(false)
     }
 
-    setNotice(`Published! It'll appear on the live site within about a minute, once GitHub finishes rebuilding.`)
-    setNoticeType('success')
-    setTimeout(() => navigate('/drafts'), 2500)
+    if (shareProblem) {
+      // Stay on this screen longer so the reason can actually be read.
+      setNotice(`Published, but ${shareProblem}`)
+      setNoticeType('error')
+      setTimeout(() => navigate('/drafts'), 10000)
+    } else {
+      setNotice(`Published! It'll appear on the live site within about a minute, once GitHub finishes rebuilding.`)
+      setNoticeType('success')
+      setTimeout(() => navigate('/drafts'), 2500)
+    }
   }
 
   async function handleDelete() {
