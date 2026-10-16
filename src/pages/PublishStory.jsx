@@ -15,6 +15,42 @@ function slugify(title) {
     .slice(0, 80)
 }
 
+// Turns any chosen photo into a standard JPEG (max 1600px wide) before upload.
+// This avoids odd formats like .jfif that social platforms can refuse, and
+// shrinks huge phone photos so pages load faster. If anything goes wrong it
+// quietly falls back to uploading the original file exactly as before.
+function bytesToBase64(bytes) {
+  let binary = ''
+  const chunk = 0x8000
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk))
+  }
+  return btoa(binary)
+}
+
+async function prepareImage(file) {
+  try {
+    const bitmap = await createImageBitmap(file)
+    const scale = Math.min(1, 1600 / bitmap.width)
+    const width = Math.round(bitmap.width * scale)
+    const height = Math.round(bitmap.height * scale)
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    ctx.fillStyle = '#ffffff' // fills any transparent areas, since JPEG has none
+    ctx.fillRect(0, 0, width, height)
+    ctx.drawImage(bitmap, 0, 0, width, height)
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85))
+    if (!blob) throw new Error('conversion failed')
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    return { base64: bytesToBase64(bytes), ext: 'jpg' }
+  } catch {
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    return { base64: bytesToBase64(bytes), ext: file.name.split('.').pop().toLowerCase() }
+  }
+}
+
 const emptyForm = {
   title: '',
   category: 'news',
@@ -221,12 +257,9 @@ export default function PublishStory() {
     let imageBase64 = null
     let imageExt = null
     if (imageFile) {
-      imageExt = imageFile.name.split('.').pop().toLowerCase()
-      const buffer = await imageFile.arrayBuffer()
-      const bytes = new Uint8Array(buffer)
-      let binary = ''
-      bytes.forEach((b) => (binary += String.fromCharCode(b)))
-      imageBase64 = btoa(binary)
+      const prepared = await prepareImage(imageFile)
+      imageBase64 = prepared.base64
+      imageExt = prepared.ext
     }
 
     const { data, error } = await supabase.functions.invoke('publish-story', {
@@ -253,6 +286,7 @@ export default function PublishStory() {
     // Auto-share to LinkedIn, Facebook, and X — only for brand-new stories,
     // never for edits to something already live.
     let shareProblem = ''
+    let shareDelay = 0
     if (!isLive) {
       setNotice('Published! Sharing to social media…')
       setNoticeType('success')
@@ -265,6 +299,7 @@ export default function PublishStory() {
         if (shareError) {
           shareProblem = 'social sharing could not be reached.'
         } else {
+          shareDelay = (shareData?.results || []).some((r) => r.ok && r.scheduled) ? shareData?.delayMinutes || 0 : 0
           const failed = (shareData?.results || []).filter((r) => !r.ok)
           if (failed.length) {
             shareProblem = `it was not shared to ${failed.map((r) => `${r.channel} (${r.error})`).join('; ')}.`
@@ -283,9 +318,13 @@ export default function PublishStory() {
       setNoticeType('error')
       setTimeout(() => navigate('/drafts'), 10000)
     } else {
-      setNotice(`Published! It'll appear on the live site within about a minute, once GitHub finishes rebuilding.`)
+      setNotice(
+        shareDelay > 0
+          ? `Published! It'll appear on the live site within about a minute. The social media posts go out in about ${shareDelay} minutes, once the page is live.`
+          : `Published! It'll appear on the live site within about a minute, once GitHub finishes rebuilding.`
+      )
       setNoticeType('success')
-      setTimeout(() => navigate('/drafts'), 2500)
+      setTimeout(() => navigate('/drafts'), shareDelay > 0 ? 5000 : 2500)
     }
   }
 
