@@ -5,6 +5,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import PublishStory from './pages/PublishStory'
 import Drafts from './pages/Drafts'
+import Comments from './pages/Comments'
 import Stories from './pages/Stories'
 import Media from './pages/Media'
 import Users from './pages/Users'
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="/publish" element={<ProtectedRoute><PublishStory /></ProtectedRoute>} />
           <Route path="/publish/:id" element={<ProtectedRoute><PublishStory /></ProtectedRoute>} />
           <Route path="/drafts" element={<ProtectedRoute><Drafts /></ProtectedRoute>} />
+          <Route path="/comments" element={<ProtectedRoute roles={['admin', 'editor']}><Comments /></ProtectedRoute>} />
           <Route path="/stories" element={<ProtectedRoute><Stories /></ProtectedRoute>} />
           <Route path="/media" element={<ProtectedRoute roles={['admin', 'editor']}><Media /></ProtectedRoute>} />
           <Route path="/users" element={<ProtectedRoute roles={['admin']}><Users /></ProtectedRoute>} />
