@@ -71,7 +71,7 @@ export default function Stories() {
                 </div>
               </Link>
               <a
-                href={`${SITE_BASE_URL}/stories/${s.slug}.html`}
+                href={`${SITE_BASE_URL}/stories/${s.slug}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-xs text-wire hover:underline shrink-0"
