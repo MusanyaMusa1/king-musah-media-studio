@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { to: '/publish', label: 'Publish Story', roles: ['admin', 'editor', 'reporter'] },
   { to: '/stories', label: 'Stories', roles: ['admin', 'editor', 'reporter'] },
   { to: '/drafts', label: 'Drafts', roles: ['admin', 'editor', 'reporter'] },
+  { to: '/comments', label: 'Comments', roles: ['admin', 'editor'] },
   { to: '/media', label: 'Media Library', roles: ['admin', 'editor'] },
   { to: '/users', label: 'Users', roles: ['admin'] },
   { to: '/analytics', label: 'Analytics', roles: ['admin', 'editor'] },
