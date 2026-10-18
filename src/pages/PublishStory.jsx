@@ -62,6 +62,7 @@ const emptyForm = {
   featured: false,
   excerpt: '',
   image_alt: '',
+  library_image: '',
   content: '',
   tags: '',
   video_url: '',
@@ -83,6 +84,8 @@ export default function PublishStory() {
   const [noticeType, setNoticeType] = useState('info')
   const [imageFile, setImageFile] = useState(null)
   const [imagePreviewUrl, setImagePreviewUrl] = useState(null)
+  const [showLibrary, setShowLibrary] = useState(false)
+  const [libraryUrl, setLibraryUrl] = useState(null)
 
   const [showAi, setShowAi] = useState(false)
   const [aiNotes, setAiNotes] = useState('')
@@ -107,6 +110,7 @@ export default function PublishStory() {
           featured: !!data.featured,
           excerpt: data.excerpt || '',
           image_alt: data.image_alt || '',
+          library_image: data.library_image || '',
           content: data.content || '',
           tags: (data.tags || []).join(', '),
           video_url: data.video_url || '',
@@ -214,6 +218,7 @@ export default function PublishStory() {
       featured: form.featured,
       excerpt: form.excerpt,
       image_alt: form.image_alt,
+      library_image: form.library_image || null,
       content: form.content,
       tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
       video_url: form.video_url.trim() || null,
@@ -569,17 +574,51 @@ export default function PublishStory() {
           />
         </Field>
 
-        <Field label="Photo" hint="JPG, PNG, or WEBP. Uploads with the story when you click Publish.">
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => {
-              const file = e.target.files?.[0]
-              setImageFile(file || null)
-              setImagePreviewUrl(file ? URL.createObjectURL(file) : null)
-            }}
-            className="text-sm text-text-soft file:mr-3 file:py-2 file:px-3 file:rounded-md file:border file:border-line file:bg-paper-2 file:text-text file:text-xs file:cursor-pointer"
-          />
+        <Field label="Photo" hint="Upload a new photo, or choose one that is already on the site. JPG, PNG or WEBP. It is added to the story when you click Publish.">
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                setImageFile(file || null)
+                setImagePreviewUrl(file ? URL.createObjectURL(file) : null)
+                if (file) {
+                  update('library_image', '') // a new upload replaces any library choice
+                  setLibraryUrl(null)
+                }
+              }}
+              className="text-sm text-text-soft file:mr-3 file:py-2 file:px-3 file:rounded-md file:border file:border-line file:bg-paper-2 file:text-text file:text-xs file:cursor-pointer"
+            />
+            <button
+              type="button"
+              onClick={() => setShowLibrary(true)}
+              className="text-xs border border-line hover:border-text-faint px-3 py-2 rounded-md transition-colors"
+            >
+              Choose from Media Library
+            </button>
+          </div>
+
+          {form.library_image && (
+            <div className="mt-3 flex items-center gap-3 border border-line rounded-md p-2.5">
+              {libraryUrl && <img src={libraryUrl} alt="" className="w-20 h-14 object-cover rounded" />}
+              <div className="min-w-0 flex-1">
+                <div className="text-xs text-text-faint">From the Media Library</div>
+                <div className="text-sm font-mono truncate">{form.library_image}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  update('library_image', '')
+                  setLibraryUrl(null)
+                }}
+                className="text-xs text-text-faint hover:text-red transition-colors"
+              >
+                Remove
+              </button>
+            </div>
+          )}
+
           {imagePreviewUrl && (
             <img src={imagePreviewUrl} alt="" className="mt-3 rounded-md max-h-48 object-cover" />
           )}
@@ -642,6 +681,18 @@ export default function PublishStory() {
       </div>
 
       {preview && <PreviewModal form={form} onClose={() => setPreview(false)} />}
+      {showLibrary && (
+        <LibraryPicker
+          onClose={() => setShowLibrary(false)}
+          onPick={(img) => {
+            update('library_image', img.name)
+            setLibraryUrl(img.url)
+            setImageFile(null) // a library choice replaces any upload
+            setImagePreviewUrl(null)
+            setShowLibrary(false)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -674,6 +725,76 @@ function Toggle({ label, checked, onChange }) {
       />
       {label}
     </label>
+  )
+}
+
+function LibraryPicker({ onPick, onClose }) {
+  const [images, setImages] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [search, setSearch] = useState('')
+
+  useEffect(() => {
+    async function load() {
+      const { data, error } = await supabase.functions.invoke('list-media', {})
+      if (error || data?.error) {
+        setError(data?.error || error?.message || 'Could not load the Media Library.')
+      } else {
+        setImages(data.images || [])
+      }
+      setLoading(false)
+    }
+    load()
+  }, [])
+
+  const shown = images.filter((img) => img.name.toLowerCase().includes(search.toLowerCase()))
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50" onClick={onClose}>
+      <div
+        className="bg-ink border border-line rounded-lg max-w-3xl w-full max-h-[85vh] overflow-y-auto p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-display text-2xl">Media Library</h2>
+          <button type="button" onClick={onClose} className="text-text-faint hover:text-white text-sm">
+            Close
+          </button>
+        </div>
+
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by file name…"
+          className="w-full bg-paper border border-line rounded-md px-3 py-2 text-sm outline-none focus:border-red transition-colors mb-4"
+        />
+
+        {error && (
+          <div className="mb-4 text-sm bg-red/10 border border-red/20 text-red rounded-md px-3 py-2">{error}</div>
+        )}
+
+        {loading ? (
+          <p className="text-text-faint text-sm">Loading…</p>
+        ) : shown.length === 0 ? (
+          <p className="text-text-soft text-sm">No photos found.</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {shown.map((img) => (
+              <button
+                type="button"
+                key={img.name}
+                onClick={() => onPick(img)}
+                className="text-left border border-line hover:border-red rounded-lg overflow-hidden transition-colors"
+              >
+                <img src={img.url} alt={img.name} loading="lazy" className="w-full h-24 object-cover bg-paper-2" />
+                <div className="p-2 text-[11px] font-mono truncate">{img.name}</div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
