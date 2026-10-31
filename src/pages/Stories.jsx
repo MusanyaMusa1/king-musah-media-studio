@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 
-const CATEGORIES = ['all', 'news', 'politics', 'entertainment', 'sports', 'business']
+const CATEGORIES = ['all', 'news', 'politics', 'entertainment', 'sports', 'business', 'international']
 const SITE_BASE_URL = 'https://kmvtechug.app/media'
 
 export default function Stories() {

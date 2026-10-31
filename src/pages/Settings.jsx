@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 
-const CATEGORIES = ['news', 'politics', 'entertainment', 'sports', 'business']
+const CATEGORIES = ['news', 'politics', 'entertainment', 'sports', 'business', 'international']
 const LANGUAGES = [{ value: 'en', label: 'English' }, { value: 'lg', label: 'Luganda' }]
 
 export default function Settings() {

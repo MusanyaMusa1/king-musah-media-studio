@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 
-const CATEGORIES = ['news', 'politics', 'entertainment', 'sports', 'business']
+const CATEGORIES = ['news', 'politics', 'entertainment', 'sports', 'business', 'international']
 
 function slugify(title) {
   return title
