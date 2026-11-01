@@ -7,6 +7,7 @@ import PublishStory from './pages/PublishStory'
 import Drafts from './pages/Drafts'
 import Comments from './pages/Comments'
 import Newsletter from './pages/Newsletter'
+import SystemCheck from './pages/SystemCheck'
 import Stories from './pages/Stories'
 import Media from './pages/Media'
 import Users from './pages/Users'
@@ -25,6 +26,7 @@ export default function App() {
           <Route path="/drafts" element={<ProtectedRoute><Drafts /></ProtectedRoute>} />
           <Route path="/comments" element={<ProtectedRoute roles={['admin', 'editor']}><Comments /></ProtectedRoute>} />
           <Route path="/newsletter" element={<ProtectedRoute roles={['admin', 'editor']}><Newsletter /></ProtectedRoute>} />
+          <Route path="/system" element={<ProtectedRoute roles={['admin']}><SystemCheck /></ProtectedRoute>} />
           <Route path="/stories" element={<ProtectedRoute><Stories /></ProtectedRoute>} />
           <Route path="/media" element={<ProtectedRoute roles={['admin', 'editor']}><Media /></ProtectedRoute>} />
           <Route path="/users" element={<ProtectedRoute roles={['admin']}><Users /></ProtectedRoute>} />
