@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
 const CATEGORIES = ['news', 'politics', 'entertainment', 'sports', 'business', 'international']
@@ -124,6 +125,13 @@ export default function Settings() {
           </button>
         )}
       </form>
+
+      {isAdmin && (
+        <p className="text-sm text-text-soft mt-10 border-t border-line pt-6 max-w-xl">
+          To test your connections (the website, GitHub, LinkedIn, Facebook, X, Telegram, email and the AI), open{' '}
+          <Link to="/system" className="text-red underline">System check</Link>.
+        </p>
+      )}
 
       <p className="text-xs text-text-faint mt-8">
         Note: these are currently reference defaults — the Publish Story form doesn't
