@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { to: '/media', label: 'Media Library', roles: ['admin', 'editor'] },
   { to: '/users', label: 'Users', roles: ['admin'] },
   { to: '/analytics', label: 'Analytics', roles: ['admin', 'editor'] },
+  { to: '/system', label: 'System check', roles: ['admin'] },
   { to: '/settings', label: 'Settings', roles: ['admin'] },
 ]
 
