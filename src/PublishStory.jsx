@@ -1,0 +1,834 @@
+import { useEffect, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { supabase } from '../lib/supabaseClient'
+import { useAuth } from '../contexts/AuthContext'
+
+const CATEGORIES = ['news', 'politics', 'entertainment', 'sports', 'business', 'international']
+
+function slugify(title) {
+  return title
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 80)
+}
+
+// Turns any chosen photo into a standard JPEG (max 1600px wide) before upload.
+// This avoids odd formats like .jfif that social platforms can refuse, and
+// shrinks huge phone photos so pages load faster. If anything goes wrong it
+// quietly falls back to uploading the original file exactly as before.
+function bytesToBase64(bytes) {
+  let binary = ''
+  const chunk = 0x8000
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk))
+  }
+  return btoa(binary)
+}
+
+async function prepareImage(file) {
+  try {
+    const bitmap = await createImageBitmap(file)
+    const scale = Math.min(1, 1600 / bitmap.width)
+    const width = Math.round(bitmap.width * scale)
+    const height = Math.round(bitmap.height * scale)
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    ctx.fillStyle = '#ffffff' // fills any transparent areas, since JPEG has none
+    ctx.fillRect(0, 0, width, height)
+    ctx.drawImage(bitmap, 0, 0, width, height)
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85))
+    if (!blob) throw new Error('conversion failed')
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    return { base64: bytesToBase64(bytes), ext: 'jpg' }
+  } catch {
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    return { base64: bytesToBase64(bytes), ext: file.name.split('.').pop().toLowerCase() }
+  }
+}
+
+const emptyForm = {
+  title: '',
+  category: 'news',
+  language: 'en',
+  author_type: 'individual',
+  author_name: '',
+  date: new Date().toISOString().slice(0, 10),
+  breaking: false,
+  featured: false,
+  excerpt: '',
+  image_alt: '',
+  library_image: '',
+  content: '',
+  tags: '',
+  video_url: '',
+}
+
+export default function PublishStory() {
+  const { user } = useAuth()
+  const navigate = useNavigate()
+  const { id } = useParams()
+  const [form, setForm] = useState(emptyForm)
+  const [preview, setPreview] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [publishing, setPublishing] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [isLive, setIsLive] = useState(false)
+  const [loadingDraft, setLoadingDraft] = useState(!!id)
+  const [errors, setErrors] = useState({})
+  const [notice, setNotice] = useState('')
+  const [noticeType, setNoticeType] = useState('info')
+  const [imageFile, setImageFile] = useState(null)
+  const [imagePreviewUrl, setImagePreviewUrl] = useState(null)
+  const [showLibrary, setShowLibrary] = useState(false)
+  const [libraryUrl, setLibraryUrl] = useState(null)
+
+  const [showAi, setShowAi] = useState(false)
+  const [aiNotes, setAiNotes] = useState('')
+  const [aiCategoryHint, setAiCategoryHint] = useState('')
+  const [aiGenerating, setAiGenerating] = useState(false)
+  const [aiError, setAiError] = useState('')
+
+  useEffect(() => {
+    if (!id) return
+    async function loadDraft() {
+      setLoadingDraft(true)
+      const { data, error } = await supabase.from('drafts').select('*').eq('id', id).single()
+      if (!error && data) {
+        setForm({
+          title: data.title || '',
+          category: data.category || 'news',
+          language: data.language || 'en',
+          author_type: data.author_type || 'individual',
+          author_name: data.author_type === 'newsdesk' ? '' : data.author_name || '',
+          date: data.date || new Date().toISOString().slice(0, 10),
+          breaking: !!data.breaking,
+          featured: !!data.featured,
+          excerpt: data.excerpt || '',
+          image_alt: data.image_alt || '',
+          library_image: data.library_image || '',
+          content: data.content || '',
+          tags: (data.tags || []).join(', '),
+          video_url: data.video_url || '',
+        })
+        setIsLive(!!data.published_at)
+      } else {
+        setNotice("Couldn't load that draft. It may have been deleted.")
+      }
+      setLoadingDraft(false)
+    }
+    loadDraft()
+  }, [id])
+
+  function wrapSelection(field, openTag, closeTag) {
+    const el = document.getElementById(`${field}-textarea`)
+    if (!el) return
+    const start = el.selectionStart
+    const end = el.selectionEnd
+    const value = form[field]
+    const selected = value.slice(start, end) || 'text'
+    const newValue = value.slice(0, start) + openTag + selected + closeTag + value.slice(end)
+    update(field, newValue)
+    requestAnimationFrame(() => {
+      el.focus()
+      const cursorPos = start + openTag.length + selected.length + closeTag.length
+      el.setSelectionRange(cursorPos, cursorPos)
+    })
+  }
+
+  function update(field, value) {
+    setForm((f) => ({ ...f, [field]: value }))
+  }
+
+  function validate() {
+    const e = {}
+    if (!form.title.trim()) e.title = 'Headline is required.'
+    if (!form.excerpt.trim()) e.excerpt = 'Excerpt is required — this shows on story cards.'
+    if (!form.content.trim()) e.content = 'Story body is required.'
+    if (form.author_type === 'individual' && !form.author_name.trim()) {
+      e.author_name = 'Enter the journalist\u2019s name, or switch to "News Desk".'
+    }
+    setErrors(e)
+    return Object.keys(e).length === 0
+  }
+
+  async function handleGenerateWithAi() {
+    if (!aiNotes.trim()) {
+      setAiError('Paste in some notes first — even rough bullet points work.')
+      return
+    }
+    setAiGenerating(true)
+    setAiError('')
+
+    const { data, error } = await supabase.functions.invoke('generate-draft', {
+      body: { notes: aiNotes, categoryHint: aiCategoryHint },
+    })
+
+    setAiGenerating(false)
+
+    if (error || data?.error) {
+      let message = data?.error || error?.message || 'Something went wrong generating a draft.'
+      if (error?.context) {
+        try {
+          const body = await error.context.json()
+          if (body?.error) message = body.error
+        } catch {
+          // context wasn't JSON — fall back to the generic message
+        }
+      }
+      setAiError(message)
+      return
+    }
+
+    const draft = data.draft
+    setForm((f) => ({
+      ...f,
+      title: draft.title || f.title,
+      excerpt: draft.excerpt || f.excerpt,
+      category: CATEGORIES.includes(draft.category) ? draft.category : f.category,
+      tags: Array.isArray(draft.tags) ? draft.tags.join(', ') : f.tags,
+      image_alt: draft.image_alt || f.image_alt,
+      content: Array.isArray(draft.content) ? draft.content.join('\n\n') : f.content,
+    }))
+    setShowAi(false)
+    setNotice('AI draft filled in below — read it over, fix anything, and edit freely before publishing.')
+    setNoticeType('info')
+  }
+
+  async function saveDraft(status) {
+    if (status !== 'draft' && !validate()) return null
+    setSaving(true)
+    setNotice('')
+
+    const authorName = form.author_type === 'newsdesk' ? 'King Musah Media News Desk' : form.author_name
+
+    const payload = {
+      slug: slugify(form.title) || null,
+      title: form.title,
+      category: form.category,
+      language: form.language,
+      author_type: form.author_type,
+      author_name: authorName,
+      date: form.date,
+      breaking: form.breaking,
+      featured: form.featured,
+      excerpt: form.excerpt,
+      image_alt: form.image_alt,
+      library_image: form.library_image || null,
+      content: form.content,
+      tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
+      video_url: form.video_url.trim() || null,
+      status,
+    }
+
+    let error, draftId = id
+    if (id) {
+      ;({ error } = await supabase.from('drafts').update(payload).eq('id', id))
+    } else {
+      const result = await supabase.from('drafts').insert({ ...payload, created_by: user?.id }).select('id').single()
+      error = result.error
+      draftId = result.data?.id
+    }
+    setSaving(false)
+
+    if (error) {
+      setNotice(`Something went wrong saving this: ${error.message}`)
+      setNoticeType('error')
+      return null
+    }
+
+    if (status === 'draft') {
+      setNotice('Saved as a draft.')
+      setNoticeType('info')
+    }
+
+    return draftId
+  }
+
+  async function handlePublish() {
+    if (!validate()) return
+    setNotice('')
+
+    // Save (or update) the draft first, so the Edge Function has the latest text
+    const draftId = await saveDraft('submitted')
+    if (!draftId) return
+
+    setPublishing(true)
+
+    let imageBase64 = null
+    let imageExt = null
+    if (imageFile) {
+      const prepared = await prepareImage(imageFile)
+      imageBase64 = prepared.base64
+      imageExt = prepared.ext
+    }
+
+    const { data, error } = await supabase.functions.invoke('publish-story', {
+      body: { draftId, imageBase64, imageExt },
+    })
+
+    setPublishing(false)
+
+    if (error || data?.error) {
+      let message = data?.error || error?.message || 'Something went wrong publishing this.'
+      if (error?.context) {
+        try {
+          const body = await error.context.json()
+          if (body?.error) message = body.error
+        } catch {
+          // context wasn't JSON — fall back to the generic message
+        }
+      }
+      setNotice(message)
+      setNoticeType('error')
+      return
+    }
+
+    // Auto-share to LinkedIn, Facebook, and X — only for brand-new stories,
+    // never for edits to something already live.
+    let shareProblem = ''
+    let shareDelay = 0
+    if (!isLive) {
+      setNotice('Published! Sharing to social media…')
+      setNoticeType('success')
+      setPublishing(true) // keeps the button locked so nobody double-clicks and double-posts
+
+      try {
+        const { data: shareData, error: shareError } = await supabase.functions.invoke('share-to-buffer', {
+          body: { title: form.title, excerpt: form.excerpt, slug: slugify(form.title) },
+        })
+        if (shareError) {
+          shareProblem = 'social sharing could not be reached.'
+        } else {
+          shareDelay = (shareData?.results || []).some((r) => r.ok && r.scheduled) ? shareData?.delayMinutes || 0 : 0
+          const failed = (shareData?.results || []).filter((r) => !r.ok)
+          if (failed.length) {
+            shareProblem = `it was not shared to ${failed.map((r) => `${r.channel} (${r.error})`).join('; ')}.`
+          }
+        }
+      } catch {
+        shareProblem = 'social sharing could not be reached.'
+      }
+
+      setPublishing(false)
+    }
+
+    if (shareProblem) {
+      // Stay on this screen longer so the reason can actually be read.
+      setNotice(`Published, but ${shareProblem}`)
+      setNoticeType('error')
+      setTimeout(() => navigate('/drafts'), 10000)
+    } else {
+      setNotice(
+        shareDelay > 0
+          ? `Published! It'll appear on the live site within about a minute. The social media posts go out in about ${shareDelay} minutes, once the page is live.`
+          : `Published! It'll appear on the live site within about a minute, once GitHub finishes rebuilding.`
+      )
+      setNoticeType('success')
+      setTimeout(() => navigate('/drafts'), shareDelay > 0 ? 5000 : 2500)
+    }
+  }
+
+  async function handleDelete() {
+    if (!id) return
+    if (!window.confirm('Remove this story from the live site? This cannot be undone from here.')) return
+    setDeleting(true)
+    setNotice('')
+
+    const { data, error } = await supabase.functions.invoke('publish-story', {
+      body: { draftId: id, action: 'delete' },
+    })
+
+    setDeleting(false)
+
+    if (error || data?.error) {
+      let message = data?.error || error?.message || 'Something went wrong removing this.'
+      if (error?.context) {
+        try {
+          const body = await error.context.json()
+          if (body?.error) message = body.error
+        } catch {
+          // not JSON — keep the generic message
+        }
+      }
+      setNotice(message)
+      setNoticeType('error')
+      return
+    }
+
+    setNotice('Removed from the live site. This will disappear within about a minute.')
+    setNoticeType('success')
+    setIsLive(false)
+    setTimeout(() => navigate('/drafts'), 2000)
+  }
+
+  if (loadingDraft) {
+    return <p className="text-text-faint text-sm">Loading draft…</p>
+  }
+
+  return (
+    <div className="max-w-3xl">
+      <h1 className="font-display text-3xl mb-1">{id ? 'Edit Story' : 'Publish Story'}</h1>
+      <p className="text-text-soft text-sm mb-8">
+        {id
+          ? 'Changes save to this same draft — nothing is duplicated.'
+          : 'Fill this in, then save a draft, submit it for review, or publish directly if you have permission.'}
+      </p>
+
+      {notice && (
+        <div
+          className={`mb-6 text-sm rounded-md px-4 py-2.5 border ${
+            noticeType === 'error'
+              ? 'bg-red/10 border-red/20 text-red'
+              : noticeType === 'success'
+              ? 'bg-wire/10 border-wire/20 text-wire'
+              : 'bg-wire/10 border-wire/20 text-wire'
+          }`}
+        >
+          {notice}
+        </div>
+      )}
+
+      {!id && (
+        <div className="mb-6 border border-line rounded-lg p-4">
+          <button
+            type="button"
+            onClick={() => setShowAi((v) => !v)}
+            className="text-sm font-medium flex items-center gap-2"
+          >
+            ✨ Generate with AI {showAi ? '−' : '+'}
+          </button>
+          {showAi && (
+            <div className="mt-3 space-y-3">
+              <p className="text-xs text-text-faint">
+                Paste your rough notes, quotes, or bullet points below. It'll draft a full story in
+                King Musah Media's style — you review and edit everything before it's saved anywhere.
+              </p>
+              {aiError && (
+                <div className="text-sm bg-red/10 border border-red/20 text-red rounded-md px-3 py-2">
+                  {aiError}
+                </div>
+              )}
+              <textarea
+                value={aiNotes}
+                onChange={(e) => setAiNotes(e.target.value)}
+                rows={6}
+                placeholder="e.g. Minister X announced Y today at Z event. Said quote about... Opposition reaction was..."
+                className={inputClass() + ' font-mono text-sm'}
+              />
+              <input
+                type="text"
+                value={aiCategoryHint}
+                onChange={(e) => setAiCategoryHint(e.target.value)}
+                placeholder="Optional: category hint, e.g. politics"
+                className={inputClass()}
+              />
+              <button
+                type="button"
+                onClick={handleGenerateWithAi}
+                disabled={aiGenerating}
+                className="text-sm bg-red hover:bg-red/90 text-white px-4 py-2 rounded-md transition-colors disabled:opacity-50"
+              >
+                {aiGenerating ? 'Generating…' : 'Generate draft'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-5">
+        <Field label="Headline" error={errors.title}>
+          <input
+            type="text"
+            value={form.title}
+            onChange={(e) => update('title', e.target.value)}
+            className={inputClass(errors.title)}
+            placeholder="Full story headline"
+          />
+        </Field>
+
+        <div className="grid grid-cols-2 gap-5">
+          <Field label="Category">
+            <select
+              value={form.category}
+              onChange={(e) => update('category', e.target.value)}
+              className={inputClass()}
+            >
+              {CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c[0].toUpperCase() + c.slice(1)}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Language">
+            <select
+              value={form.language}
+              onChange={(e) => update('language', e.target.value)}
+              className={inputClass()}
+            >
+              <option value="en">English</option>
+              <option value="lg">Luganda</option>
+            </select>
+          </Field>
+        </div>
+
+        <Field label="Date" hint="The date shown on the story. Defaults to today — change it if you're backdating or scheduling.">
+          <input
+            type="date"
+            value={form.date}
+            onChange={(e) => update('date', e.target.value)}
+            className={inputClass()}
+          />
+        </Field>
+
+        <div className="grid grid-cols-2 gap-5">
+          <Field label="Author">
+            <select
+              value={form.author_type}
+              onChange={(e) => update('author_type', e.target.value)}
+              className={inputClass()}
+            >
+              <option value="individual">Individual journalist</option>
+              <option value="newsdesk">King Musah Media News Desk</option>
+            </select>
+          </Field>
+
+          {form.author_type === 'individual' && (
+            <Field label="Journalist name" error={errors.author_name}>
+              <input
+                type="text"
+                value={form.author_name}
+                onChange={(e) => update('author_name', e.target.value)}
+                className={inputClass(errors.author_name)}
+                placeholder="e.g. Musanya Musa"
+              />
+            </Field>
+          )}
+        </div>
+
+        <div className="flex gap-6">
+          <Toggle label="Breaking" checked={form.breaking} onChange={(v) => update('breaking', v)} />
+          <Toggle label="Featured (homepage lead)" checked={form.featured} onChange={(v) => update('featured', v)} />
+        </div>
+
+        <Field label="Excerpt" hint="One or two sentences shown on story cards." error={errors.excerpt}>
+          <textarea
+            value={form.excerpt}
+            onChange={(e) => update('excerpt', e.target.value)}
+            rows={2}
+            className={inputClass(errors.excerpt)}
+          />
+        </Field>
+
+        <Field label="Story body" hint="One paragraph per line. Select text and click Bold to emphasize a word or lead-in phrase." error={errors.content}>
+          <div className="flex items-center gap-1 mb-1.5">
+            <button
+              type="button"
+              onClick={() => wrapSelection('content', '<strong>', '</strong>')}
+              className="text-xs font-bold border border-line hover:border-text-faint w-7 h-7 rounded flex items-center justify-center transition-colors"
+              title="Bold selected text"
+            >
+              B
+            </button>
+            <button
+              type="button"
+              onClick={() => wrapSelection('content', '<em>', '</em>')}
+              className="text-xs italic border border-line hover:border-text-faint w-7 h-7 rounded flex items-center justify-center transition-colors"
+              title="Italicize selected text"
+            >
+              i
+            </button>
+          </div>
+          <textarea
+            id="content-textarea"
+            value={form.content}
+            onChange={(e) => update('content', e.target.value)}
+            rows={12}
+            className={inputClass(errors.content) + ' font-mono text-sm leading-relaxed'}
+            placeholder={'First paragraph...\n\nSecond paragraph...'}
+          />
+        </Field>
+
+        <Field label="Tags" hint="Comma-separated, e.g. Kampala, Infrastructure, Traffic">
+          <input
+            type="text"
+            value={form.tags}
+            onChange={(e) => update('tags', e.target.value)}
+            className={inputClass()}
+          />
+        </Field>
+
+        <Field label="Image alt text" hint="A short description of the photo, for accessibility and search engines.">
+          <input
+            type="text"
+            value={form.image_alt}
+            onChange={(e) => update('image_alt', e.target.value)}
+            className={inputClass()}
+            placeholder="e.g. President Museveni addressing Parliament"
+          />
+        </Field>
+
+        <Field label="Photo" hint="Upload a new photo, or choose one that is already on the site. JPG, PNG or WEBP. It is added to the story when you click Publish.">
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                setImageFile(file || null)
+                setImagePreviewUrl(file ? URL.createObjectURL(file) : null)
+                if (file) {
+                  update('library_image', '') // a new upload replaces any library choice
+                  setLibraryUrl(null)
+                }
+              }}
+              className="text-sm text-text-soft file:mr-3 file:py-2 file:px-3 file:rounded-md file:border file:border-line file:bg-paper-2 file:text-text file:text-xs file:cursor-pointer"
+            />
+            <button
+              type="button"
+              onClick={() => setShowLibrary(true)}
+              className="text-xs border border-line hover:border-text-faint px-3 py-2 rounded-md transition-colors"
+            >
+              Choose from Media Library
+            </button>
+          </div>
+
+          {form.library_image && (
+            <div className="mt-3 flex items-center gap-3 border border-line rounded-md p-2.5">
+              {libraryUrl && <img src={libraryUrl} alt="" className="w-20 h-14 object-cover rounded" />}
+              <div className="min-w-0 flex-1">
+                <div className="text-xs text-text-faint">From the Media Library</div>
+                <div className="text-sm font-mono truncate">{form.library_image}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  update('library_image', '')
+                  setLibraryUrl(null)
+                }}
+                className="text-xs text-text-faint hover:text-red transition-colors"
+              >
+                Remove
+              </button>
+            </div>
+          )}
+
+          {imagePreviewUrl && (
+            <img src={imagePreviewUrl} alt="" className="mt-3 rounded-md max-h-48 object-cover" />
+          )}
+        </Field>
+
+        <Field
+          label="Video (optional)"
+          hint="Paste a YouTube link — either an existing video, or one you've uploaded to your own channel (Unlisted is fine). The photo stays as the lead image, and this plays right below it — both show, not one or the other."
+        >
+          <input
+            type="text"
+            value={form.video_url}
+            onChange={(e) => update('video_url', e.target.value)}
+            className={inputClass()}
+            placeholder="https://youtube.com/watch?v=..."
+          />
+        </Field>
+      </div>
+
+      <div className="flex items-center gap-3 mt-8">
+        <button
+          onClick={() => setPreview(true)}
+          className="text-sm border border-line hover:border-text-faint px-4 py-2 rounded-md transition-colors"
+        >
+          Preview
+        </button>
+        <button
+          onClick={() => saveDraft('draft')}
+          disabled={saving}
+          className="text-sm border border-line hover:border-text-faint px-4 py-2 rounded-md transition-colors disabled:opacity-50"
+        >
+          Save draft
+        </button>
+        <button
+          onClick={async () => {
+            const draftId = await saveDraft('submitted')
+            if (draftId) navigate('/drafts')
+          }}
+          disabled={saving}
+          className="text-sm bg-amber hover:bg-amber/90 text-white px-4 py-2 rounded-md transition-colors disabled:opacity-50"
+        >
+          Submit for review
+        </button>
+        <button
+          onClick={handlePublish}
+          disabled={saving || publishing}
+          className="text-sm bg-red hover:bg-red/90 text-white px-4 py-2 rounded-md transition-colors disabled:opacity-50 ml-auto"
+        >
+          {publishing ? 'Publishing…' : isLive ? 'Update live story' : 'Publish'}
+        </button>
+        {isLive && (
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="text-sm border border-red/40 text-red hover:bg-red/10 px-4 py-2 rounded-md transition-colors disabled:opacity-50"
+          >
+            {deleting ? 'Removing…' : 'Remove from site'}
+          </button>
+        )}
+      </div>
+
+      {preview && <PreviewModal form={form} onClose={() => setPreview(false)} />}
+      {showLibrary && (
+        <LibraryPicker
+          onClose={() => setShowLibrary(false)}
+          onPick={(img) => {
+            update('library_image', img.name)
+            setLibraryUrl(img.url)
+            setImageFile(null) // a library choice replaces any upload
+            setImagePreviewUrl(null)
+            setShowLibrary(false)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function Field({ label, hint, error, children }) {
+  return (
+    <div>
+      <label className="block text-xs text-text-faint mb-1.5">{label}</label>
+      {children}
+      {hint && !error && <p className="text-xs text-text-faint mt-1">{hint}</p>}
+      {error && <p className="text-xs text-red mt-1">{error}</p>}
+    </div>
+  )
+}
+
+function inputClass(error) {
+  return `w-full bg-paper border rounded-md px-3 py-2 text-sm outline-none transition-colors ${
+    error ? 'border-red' : 'border-line focus:border-red'
+  }`
+}
+
+function Toggle({ label, checked, onChange }) {
+  return (
+    <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="w-4 h-4 accent-red"
+      />
+      {label}
+    </label>
+  )
+}
+
+function LibraryPicker({ onPick, onClose }) {
+  const [images, setImages] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [search, setSearch] = useState('')
+
+  useEffect(() => {
+    async function load() {
+      const { data, error } = await supabase.functions.invoke('list-media', {})
+      if (error || data?.error) {
+        setError(data?.error || error?.message || 'Could not load the Media Library.')
+      } else {
+        setImages(data.images || [])
+      }
+      setLoading(false)
+    }
+    load()
+  }, [])
+
+  const shown = images.filter((img) => img.name.toLowerCase().includes(search.toLowerCase()))
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50" onClick={onClose}>
+      <div
+        className="bg-ink border border-line rounded-lg max-w-3xl w-full max-h-[85vh] overflow-y-auto p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-display text-2xl">Media Library</h2>
+          <button type="button" onClick={onClose} className="text-text-faint hover:text-white text-sm">
+            Close
+          </button>
+        </div>
+
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by file name…"
+          className="w-full bg-paper border border-line rounded-md px-3 py-2 text-sm outline-none focus:border-red transition-colors mb-4"
+        />
+
+        {error && (
+          <div className="mb-4 text-sm bg-red/10 border border-red/20 text-red rounded-md px-3 py-2">{error}</div>
+        )}
+
+        {loading ? (
+          <p className="text-text-faint text-sm">Loading…</p>
+        ) : shown.length === 0 ? (
+          <p className="text-text-soft text-sm">No photos found.</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {shown.map((img) => (
+              <button
+                type="button"
+                key={img.name}
+                onClick={() => onPick(img)}
+                className="text-left border border-line hover:border-red rounded-lg overflow-hidden transition-colors"
+              >
+                <img src={img.url} alt={img.name} loading="lazy" className="w-full h-24 object-cover bg-paper-2" />
+                <div className="p-2 text-[11px] font-mono truncate">{img.name}</div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function PreviewModal({ form, onClose }) {
+  const authorName = form.author_type === 'newsdesk' ? 'King Musah Media News Desk' : form.author_name || '—'
+  const paragraphs = form.content.split('\n').filter((p) => p.trim())
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-6 z-50" onClick={onClose}>
+      <div
+        className="bg-ink border border-line rounded-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto p-8"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex justify-between items-start mb-6">
+          <span className="inline-block bg-red text-white text-[11px] font-bold uppercase tracking-wide px-2.5 py-1 rounded">
+            {form.category || 'news'}
+          </span>
+          <button onClick={onClose} className="text-text-faint hover:text-white text-sm">
+            Close
+          </button>
+        </div>
+        <h1 className="font-display text-4xl mb-3 leading-tight">{form.title || 'Untitled story'}</h1>
+        <div className="text-xs text-text-faint mb-6 font-mono">
+          {authorName} · {form.language === 'lg' ? 'Luganda' : 'English'}
+          {form.breaking && ' · BREAKING'}
+        </div>
+        <div className="space-y-4 text-[15px] leading-relaxed text-text-soft">
+          {paragraphs.length ? (
+            paragraphs.map((p, i) => <p key={i}>{p}</p>)
+          ) : (
+            <p className="text-text-faint italic">No story body yet.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
