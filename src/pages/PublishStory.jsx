@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
+import PublicationDestinations from '../components/PublicationDestinations'
 
 const CATEGORIES = ['news', 'politics', 'entertainment', 'sports', 'business', 'international']
 
@@ -78,6 +79,7 @@ export default function PublishStory() {
   const [publishing, setPublishing] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [isLive, setIsLive] = useState(false)
+  const [manualDestinations, setManualDestinations] = useState(['linkedin', 'facebook', 'x'])
   const [loadingDraft, setLoadingDraft] = useState(!!id)
   const [errors, setErrors] = useState({})
   const [notice, setNotice] = useState('')
@@ -227,7 +229,7 @@ export default function PublishStory() {
 
     let error, draftId = id
     if (id) {
-      ;({ error } = await supabase.from('drafts').update(payload).eq('id', id))
+      ;({ error } = await supabase.from('drafts').update({ ...payload, human_modified_at: new Date().toISOString() }).eq('id', id))
     } else {
       const result = await supabase.from('drafts').insert({ ...payload, created_by: user?.id }).select('id').single()
       error = result.error
@@ -292,14 +294,14 @@ export default function PublishStory() {
     // never for edits to something already live.
     let shareProblem = ''
     let shareDelay = 0
-    if (!isLive) {
-      setNotice('Published! Sharing to social media…')
+    if (!isLive && manualDestinations.length > 0) {
+      setNotice('Published! Sharing to selected social destinations…')
       setNoticeType('success')
       setPublishing(true) // keeps the button locked so nobody double-clicks and double-posts
 
       try {
         const { data: shareData, error: shareError } = await supabase.functions.invoke('share-to-buffer', {
-          body: { title: form.title, excerpt: form.excerpt, slug: slugify(form.title) },
+          body: { title: form.title, excerpt: form.excerpt, slug: slugify(form.title), channels: manualDestinations },
         })
         if (shareError) {
           shareProblem = 'social sharing could not be reached.'
@@ -525,6 +527,13 @@ export default function PublishStory() {
             className={inputClass(errors.excerpt)}
           />
         </Field>
+
+        {!isLive && (
+          <div className="border border-line rounded-lg p-4 space-y-2">
+            <h2 className="text-sm font-medium">Publication destinations</h2>
+            <PublicationDestinations value={manualDestinations} onChange={setManualDestinations} />
+          </div>
+        )}
 
         <Field label="Story body" hint="One paragraph per line. Select text and click Bold to emphasize a word or lead-in phrase." error={errors.content}>
           <div className="flex items-center gap-1 mb-1.5">

@@ -41,6 +41,7 @@ export default function SystemCheck() {
   const [error, setError] = useState('')
   const [busyAction, setBusyAction] = useState('')
   const [actionResult, setActionResult] = useState(null)
+  const [queueHealth, setQueueHealth] = useState(null)
 
   const run = useCallback(async () => {
     setRunning(true)
@@ -51,6 +52,9 @@ export default function SystemCheck() {
     } else {
       setResult(data)
     }
+    const { data: health, error: healthError } = await supabase.rpc('get_publication_queue_health')
+    if (!healthError && health) setQueueHealth(health)
+    else setQueueHealth({ error: healthError?.message || 'Queue monitoring is not available yet. Apply the Stage 2 migrations.' })
     setRunning(false)
   }, [])
 
@@ -108,6 +112,16 @@ export default function SystemCheck() {
           </span>
         </div>
       )}
+
+      <section className="mb-6 border border-line rounded-lg p-4">
+        <h2 className="font-display text-lg mb-3">Publication queue</h2>
+        {queueHealth?.error ? <p className="text-xs text-amber">{queueHealth.error}</p> : queueHealth ? (
+          <div className="space-y-2 text-sm">
+            <div className="flex flex-wrap gap-x-5 gap-y-1"><span>{queueHealth.pending} pending</span><span className={queueHealth.failed ? 'text-red' : 'text-wire'}>{queueHealth.failed} failed</span></div>
+            {queueHealth.latest ? <p className="text-xs text-text-faint">Last worker run: {new Date(queueHealth.latest.started_at).toLocaleString()} · {queueHealth.latest.run_status} · {queueHealth.latest.jobs_completed || 0} completed / {queueHealth.latest.jobs_failed || 0} failed</p> : <p className="text-xs text-text-faint">No worker run has been recorded yet.</p>}
+          </div>
+        ) : <p className="text-xs text-text-faint">Loading queue status…</p>}
+      </section>
 
       {present.map((group) => (
         <section key={group} className="mb-6">
