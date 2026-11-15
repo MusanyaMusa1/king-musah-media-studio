@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { to: '/drafts', label: 'Drafts', roles: ['admin', 'editor', 'reporter'] },
   { to: '/comments', label: 'Comments', roles: ['admin', 'editor'] },
   { to: '/newsletter', label: 'Newsletter', roles: ['admin', 'editor'] },
+  { to: '/editions', label: 'Editions', roles: ['admin', 'editor'] },
   { to: '/authors', label: 'Authors', roles: ['admin', 'editor'] },
   { to: '/media', label: 'Media Library', roles: ['admin', 'editor'] },
   { to: '/users', label: 'Users', roles: ['admin'] },
