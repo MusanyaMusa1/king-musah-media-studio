@@ -7,6 +7,7 @@ import PublishStory from './pages/PublishStory'
 import Drafts from './pages/Drafts'
 import Comments from './pages/Comments'
 import Newsletter from './pages/Newsletter'
+import Editions from './pages/Editions'
 import Authors from './pages/Authors'
 import SystemCheck from './pages/SystemCheck'
 import Stories from './pages/Stories'
@@ -27,6 +28,7 @@ export default function App() {
           <Route path="/drafts" element={<ProtectedRoute><Drafts /></ProtectedRoute>} />
           <Route path="/comments" element={<ProtectedRoute roles={['admin', 'editor']}><Comments /></ProtectedRoute>} />
           <Route path="/newsletter" element={<ProtectedRoute roles={['admin', 'editor']}><Newsletter /></ProtectedRoute>} />
+          <Route path="/editions" element={<ProtectedRoute roles={['admin', 'editor']}><Editions /></ProtectedRoute>} />
           <Route path="/authors" element={<ProtectedRoute roles={['admin', 'editor']}><Authors /></ProtectedRoute>} />
           <Route path="/system" element={<ProtectedRoute roles={['admin']}><SystemCheck /></ProtectedRoute>} />
           <Route path="/stories" element={<ProtectedRoute><Stories /></ProtectedRoute>} />
