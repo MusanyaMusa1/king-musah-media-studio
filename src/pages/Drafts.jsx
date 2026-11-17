@@ -2,7 +2,6 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
-import PublicationDestinations from '../components/PublicationDestinations'
 
 const STATUS_STYLES = {
   draft: 'bg-white/10 text-text-soft',
@@ -14,19 +13,18 @@ const STATUS_STYLES = {
 
 const FILTERS = ['all', 'draft', 'submitted', 'approved', 'published']
 
+const AUTO_AUTHOR = 'King Musah Media News Desk'
 const CHUNK = 50
 
 // A published story is live on the site, so it is removed from the Stories page, never from here.
 const canDelete = (d) => d.status !== 'published'
 
-// Explicit provenance replaces the old author-name/timestamp heuristic.
+// An automatic news draft that nobody has opened or edited.
 const isUntouchedAuto = (d) =>
-  d.is_automated === true &&
-  !d.human_modified_at &&
   d.status === 'draft' &&
-  !d.review_comment &&
-  !d.scheduled_publish_at &&
-  !d.published_at
+  !d.created_by &&
+  d.author_name === AUTO_AUTHOR &&
+  Math.abs(new Date(d.updated_at) - new Date(d.created_at)) < 5000
 
 export default function Drafts() {
   const { profile, role } = useAuth()
@@ -41,11 +39,6 @@ export default function Drafts() {
   const [noticeBad, setNoticeBad] = useState(false)
   const [selected, setSelected] = useState([])
   const [deleting, setDeleting] = useState(false)
-  const [scheduleDraftId, setScheduleDraftId] = useState(null)
-  const [scheduleAt, setScheduleAt] = useState('')
-  const [scheduleBusy, setScheduleBusy] = useState(false)
-  const [reviewDestinations, setReviewDestinations] = useState(['linkedin', 'facebook', 'x'])
-  const [scheduleDestinations, setScheduleDestinations] = useState(['website', 'linkedin', 'facebook', 'x'])
 
   const setNotice = (message) => {
     setNoticeRaw(message)
@@ -65,10 +58,6 @@ export default function Drafts() {
       .select('*')
       .order('updated_at', { ascending: false })
     if (!error) setItems(data || [])
-    const { data: settings } = await supabase.from('studio_settings').select('scheduled_publication_default_destinations').eq('id', 1).maybeSingle()
-    if (Array.isArray(settings?.scheduled_publication_default_destinations)) {
-      setScheduleDestinations(['website', ...settings.scheduled_publication_default_destinations.filter((d) => ['linkedin', 'facebook', 'x'].includes(d))])
-    }
     setLoading(false)
   }
 
@@ -107,10 +96,10 @@ export default function Drafts() {
 
     // Share to LinkedIn, Facebook and X — only for brand-new stories, not edits to live ones.
     let shareProblem = ''
-    if (!item.published_at && reviewDestinations.length > 0) {
+    if (!item.published_at) {
       try {
         const { data: shareData, error: shareError } = await supabase.functions.invoke('share-to-buffer', {
-          body: { title: item.title, excerpt: item.excerpt, slug: item.slug, channels: reviewDestinations },
+          body: { title: item.title, excerpt: item.excerpt, slug: item.slug },
         })
         if (shareError) {
           shareProblem = ' Social sharing could not be reached.'
@@ -127,45 +116,6 @@ export default function Drafts() {
 
     setNotice(`Published "${item.title}".${shareProblem}`)
     load()
-  }
-
-  function localDateTimeValue(value) {
-    const date = value ? new Date(value) : new Date(Date.now() + 60 * 60 * 1000)
-    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
-    return local.toISOString().slice(0, 16)
-  }
-
-  async function saveSchedule(item) {
-    if (!scheduleAt) return showBad('Choose a date and time for publication.')
-    setScheduleBusy(true)
-    setNotice('')
-    const { data, error } = await supabase.functions.invoke('manage-publication-schedule', {
-      body: { draftId: item.id, scheduledAt: new Date(scheduleAt).toISOString(), destinations: scheduleDestinations },
-    })
-    setScheduleBusy(false)
-    if (error || data?.error) {
-      let message = data?.error || error?.message || 'Could not schedule this story.'
-      if (error?.context) {
-        try { const body = await error.context.json(); if (body?.error) message = body.error } catch { /* keep message */ }
-      }
-      return showBad(message)
-    }
-    setScheduleDraftId(null)
-    setScheduleAt('')
-    setNotice(`Scheduled “${item.title}” for ${new Date(data.scheduledAt).toLocaleString()}.`)
-    await load()
-  }
-
-  async function cancelSchedule(item) {
-    if (!window.confirm(`Cancel the scheduled publication of “${item.title}”?`)) return
-    setScheduleBusy(true)
-    const { data, error } = await supabase.functions.invoke('manage-publication-schedule', {
-      body: { draftId: item.id, action: 'cancel' },
-    })
-    setScheduleBusy(false)
-    if (error || data?.error) return showBad(data?.error || error?.message || 'Could not cancel the schedule.')
-    setNotice(`Cancelled the scheduled publication of “${item.title}”.`)
-    await load()
   }
 
   async function handleReturn(item) {
@@ -379,23 +329,6 @@ export default function Drafts() {
                       Review
                     </button>
                   )}
-                  {canReview && item.status === 'approved' && !item.published_at && (
-                    <button
-                      onClick={() => {
-                        setScheduleDraftId(scheduleDraftId === item.id ? null : item.id)
-                        setScheduleAt(localDateTimeValue(item.scheduled_publish_at))
-                        if (Array.isArray(item.scheduled_destinations) && item.scheduled_destinations.length) setScheduleDestinations(['website', ...item.scheduled_destinations.filter((d) => ['linkedin', 'facebook', 'x'].includes(d))])
-                      }}
-                      className="text-xs border border-line hover:border-text-faint px-2.5 py-1 rounded-md transition-colors"
-                    >
-                      {item.scheduled_publish_at ? 'Reschedule' : 'Schedule'}
-                    </button>
-                  )}
-                  {canReview && item.scheduled_publish_at && (
-                    <button onClick={() => cancelSchedule(item)} disabled={scheduleBusy} className="text-xs border border-amber/40 text-amber hover:bg-amber/10 px-2.5 py-1 rounded-md disabled:opacity-50">
-                      Cancel schedule
-                    </button>
-                  )}
                   {canReview && canDelete(item) && (
                     <button
                       onClick={() => deleteOne(item)}
@@ -408,32 +341,8 @@ export default function Drafts() {
                 </div>
               </div>
 
-              {scheduleDraftId === item.id && (
-                <div className="px-4 pb-4 bg-white/[0.02] space-y-3">
-                  <div>
-                    <label className="block text-xs text-text-faint mb-1.5">Publication date and time (your local time)</label>
-                    <input type="datetime-local" min={localDateTimeValue(new Date(Date.now() + 60_000).toISOString())} value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} className="bg-paper border border-line rounded-md px-3 py-2 text-sm" />
-                  </div>
-                  <div className="text-xs text-text-soft">Choose where this story should be published. Website is required; social destinations use the connected Buffer channels.</div>
-                  <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs">
-                    <label className="flex items-center gap-2"><input type="checkbox" checked disabled className="accent-red" /> Website</label>
-                    {['linkedin', 'facebook', 'x'].map((channel) => (
-                      <label key={channel} className="flex items-center gap-2 capitalize"><input type="checkbox" checked={scheduleDestinations.includes(channel)} onChange={(e) => setScheduleDestinations((current) => e.target.checked ? [...current, channel] : current.filter((d) => d !== channel))} className="accent-red" /> {channel === 'x' ? 'X' : channel}</label>
-                    ))}
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => saveSchedule(item)} disabled={scheduleBusy || !scheduleAt} className="text-xs bg-wire/15 text-wire hover:bg-wire/25 px-3 py-1.5 rounded-md disabled:opacity-50">{scheduleBusy ? 'Saving…' : 'Save schedule'}</button>
-                    <button onClick={() => setScheduleDraftId(null)} disabled={scheduleBusy} className="text-xs border border-line px-3 py-1.5 rounded-md">Close</button>
-                  </div>
-                </div>
-              )}
-
               {reviewingId === item.id && (
                 <div className="px-4 pb-4 bg-white/[0.02]">
-                  <div className="mb-3 border border-line rounded-md p-3">
-                    <div className="text-xs font-medium mb-2">Publication destinations</div>
-                    <PublicationDestinations value={reviewDestinations} onChange={setReviewDestinations} />
-                  </div>
                   <div className="flex gap-2 mb-2">
                     <button
                       onClick={() => handleApprove(item)}
