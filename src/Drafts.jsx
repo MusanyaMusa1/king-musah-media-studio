@@ -79,6 +79,41 @@ export default function Drafts() {
     })
     setBusy(false)
 
+    
+async function handleApproveForScheduling(item) {
+  if (!window.confirm(`Approve "${item.title}" for scheduled publication? It will not go live immediately.`)) return
+
+  setBusy(true)
+  setNotice('')
+
+  const { error } = await supabase
+    .from('drafts')
+    .update({
+      status: 'approved',
+      review_comment: null,
+      human_modified_at: new Date().toISOString(),
+    })
+    .eq('id', item.id)
+    .eq('status', 'submitted')
+
+  setBusy(false)
+
+  if (error) {
+    showBad(`Could not approve this story for scheduling: ${error.message}`)
+    return
+  }
+
+  await notify(
+    item.created_by,
+    `Your story "${item.title}" has been approved for scheduled publication. It has not been published yet.`,
+    'success',
+    `/publish/${item.id}`
+  )
+
+  setNotice(`"${item.title}" is approved for scheduling. It has not been published.`)
+  setReviewingId(null)
+  await load()
+}
     if (error || data?.error) {
       let message = data?.error || error?.message || 'Something went wrong publishing this.'
       if (error?.context) {
